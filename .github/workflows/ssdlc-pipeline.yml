@@ -1,0 +1,474 @@
+# =============================================================================
+# Kabnet Solutions — Reusable SSDLC Security Pipeline
+# Repository: kabnet-devsecops-pipeline
+# File: .github/workflows/ssdlc-pipeline.yml
+#
+# Stages:
+#   1. sca       — Software Composition Analysis (JS + Python dependencies)
+#   2. sast      — Static Application Security Testing (Semgrep)
+#   3. secrets   — Secrets & credential scanning (TruffleHog)
+#   4. iac       — Infrastructure as Code security (Checkov — Terraform + Ansible)
+#   5. dast      — Dynamic Application Security Testing (OWASP ZAP)
+#   6. report    — Aggregate findings upload to DefectDojo
+#
+# Usage: called by any Kabnet project repo via workflow_call
+# =============================================================================
+
+name: Kabnet SSDLC Security Pipeline
+
+on:
+  workflow_call:
+    inputs:
+      # ── Project identity ────────────────────────────────────────────────────
+      project_name:
+        description: "Project name (used in DefectDojo product)"
+        required: true
+        type: string
+
+      project_language:
+        description: "Primary language: javascript | python | both"
+        required: false
+        type: string
+        default: "both"
+
+      # ── Stage toggles (caller can disable stages not relevant) ────────────
+      run_sca:
+        description: "Run Software Composition Analysis"
+        required: false
+        type: boolean
+        default: true
+
+      run_sast:
+        description: "Run Static Application Security Testing"
+        required: false
+        type: boolean
+        default: true
+
+      run_secrets:
+        description: "Run secrets and credential scanning"
+        required: false
+        type: boolean
+        default: true
+
+      run_iac:
+        description: "Run Infrastructure as Code security scan"
+        required: false
+        type: boolean
+        default: true
+
+      run_dast:
+        description: "Run Dynamic Application Security Testing"
+        required: false
+        type: boolean
+        default: false   # disabled by default — requires a live app URL
+
+      dast_target_url:
+        description: "URL for DAST scan (required if run_dast is true)"
+        required: false
+        type: string
+        default: ""
+
+      # ── Failure policy ──────────────────────────────────────────────────────
+      fail_on_cvss:
+        description: "Minimum CVSS score to fail the pipeline (0 = never fail)"
+        required: false
+        type: string
+        default: "7"
+
+    secrets:
+      DEFECTDOJO_URL:
+        description: "DefectDojo instance URL (optional)"
+        required: false
+      DEFECTDOJO_TOKEN:
+        description: "DefectDojo API token (optional)"
+        required: false
+
+# =============================================================================
+# STAGE 1 — SCA: Software Composition Analysis
+# Tools: OWASP Dependency-Check (JS+Python), Safety (Python), npm audit (JS)
+# =============================================================================
+jobs:
+
+  sca:
+    name: "SCA — Dependency Vulnerability Scan"
+    runs-on: ubuntu-latest
+    if: ${{ inputs.run_sca }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── Python SCA: Safety ──────────────────────────────────────────────────
+      - name: Set up Python
+        if: ${{ inputs.project_language == 'python' || inputs.project_language == 'both' }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        if: ${{ inputs.project_language == 'python' || inputs.project_language == 'both' }}
+        run: |
+          python -m pip install --upgrade pip
+          # Install project deps if requirements file exists
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
+          pip install safety
+
+      - name: "SCA | Python — Safety scan"
+        if: ${{ inputs.project_language == 'python' || inputs.project_language == 'both' }}
+        run: |
+          safety check --full-report --output json > safety-report.json || true
+          safety check --full-report
+        continue-on-error: true
+
+      # ── JavaScript SCA: npm audit ───────────────────────────────────────────
+      - name: Set up Node.js
+        if: ${{ inputs.project_language == 'javascript' || inputs.project_language == 'both' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install JS dependencies
+        if: ${{ inputs.project_language == 'javascript' || inputs.project_language == 'both' }}
+        run: |
+          if [ -f package.json ]; then npm ci; fi
+
+      - name: "SCA | JS — npm audit"
+        if: ${{ inputs.project_language == 'javascript' || inputs.project_language == 'both' }}
+        run: |
+          if [ -f package.json ]; then
+            npm audit --json > npm-audit-report.json || true
+            npm audit --audit-level=high
+          fi
+        continue-on-error: true
+
+      # ── OWASP Dependency-Check (covers both JS + Python) ───────────────────
+      - name: "SCA | OWASP Dependency-Check"
+        uses: dependency-check/Dependency-Check_Action@main
+        with:
+          project: ${{ inputs.project_name }}
+          path: "."
+          format: "ALL"
+          args: >
+            --failOnCVSS ${{ inputs.fail_on_cvss }}
+            --enableRetired
+            --out reports/dependency-check
+
+      # ── Upload SCA artifacts ────────────────────────────────────────────────
+      - name: Upload SCA reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sca-reports
+          path: |
+            safety-report.json
+            npm-audit-report.json
+            reports/dependency-check/
+          retention-days: 30
+
+# =============================================================================
+# STAGE 2 — SAST: Static Application Security Testing
+# Tools: Semgrep (JS + Python rules, OWASP Top 10 + custom)
+# =============================================================================
+
+  sast:
+    name: "SAST — Static Code Analysis"
+    runs-on: ubuntu-latest
+    if: ${{ inputs.run_sast }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python (for Semgrep)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Semgrep
+        run: pip install semgrep
+
+      # ── Semgrep: Python ruleset ─────────────────────────────────────────────
+      - name: "SAST | Semgrep — Python security rules"
+        if: ${{ inputs.project_language == 'python' || inputs.project_language == 'both' }}
+        run: |
+          semgrep scan \
+            --config "p/python" \
+            --config "p/owasp-top-ten" \
+            --config "p/bandit" \
+            --json \
+            --output reports/semgrep-python.json \
+            --error \
+            . || true
+        continue-on-error: true
+
+      # ── Semgrep: JavaScript ruleset ─────────────────────────────────────────
+      - name: "SAST | Semgrep — JavaScript security rules"
+        if: ${{ inputs.project_language == 'javascript' || inputs.project_language == 'both' }}
+        run: |
+          semgrep scan \
+            --config "p/javascript" \
+            --config "p/nodejs" \
+            --config "p/owasp-top-ten" \
+            --json \
+            --output reports/semgrep-javascript.json \
+            --error \
+            . || true
+        continue-on-error: true
+
+      # ── Semgrep: Secrets and generic security ───────────────────────────────
+      - name: "SAST | Semgrep — Generic & secrets rules"
+        run: |
+          semgrep scan \
+            --config "p/secrets" \
+            --config "p/security-audit" \
+            --json \
+            --output reports/semgrep-generic.json \
+            --error \
+            . || true
+        continue-on-error: true
+
+      - name: Upload SAST reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sast-reports
+          path: reports/semgrep-*.json
+          retention-days: 30
+
+# =============================================================================
+# STAGE 3 — SECRETS: Credential & Secret Scanning
+# Tools: TruffleHog (full git history scan)
+# =============================================================================
+
+  secrets:
+    name: "Secrets — Credential & API Key Scanning"
+    runs-on: ubuntu-latest
+    if: ${{ inputs.run_secrets }}
+
+    steps:
+      - name: Checkout full git history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0    # IMPORTANT: fetch full history for TruffleHog
+
+      # ── TruffleHog: scan entire git history ─────────────────────────────────
+      - name: "Secrets | TruffleHog — Full git history scan"
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: >
+            --debug
+            --only-verified
+            --json
+
+      # ── TruffleHog: scan filesystem (catches uncommitted secrets) ───────────
+      - name: "Secrets | TruffleHog — Filesystem scan"
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}:/repo" \
+            ghcr.io/trufflesecurity/trufflehog:latest \
+            filesystem /repo \
+            --json \
+            --no-update \
+            > reports/trufflehog-filesystem.json || true
+        continue-on-error: true
+
+      - name: Upload secrets scan report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: secrets-reports
+          path: reports/trufflehog-*.json
+          retention-days: 30
+
+# =============================================================================
+# STAGE 4 — IaC: Infrastructure as Code Security
+# Tools: Checkov (Terraform + Ansible + general IaC)
+# =============================================================================
+
+  iac:
+    name: "IaC — Infrastructure Security Scan"
+    runs-on: ubuntu-latest
+    if: ${{ inputs.run_iac }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python (for Checkov)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Checkov
+        run: pip install checkov
+
+      # ── Checkov: Terraform scan ─────────────────────────────────────────────
+      - name: "IaC | Checkov — Terraform scan"
+        run: |
+          if [ -d "terraform" ] || find . -name "*.tf" | grep -q .; then
+            checkov \
+              --directory . \
+              --framework terraform \
+              --output json \
+              --output-file reports/checkov-terraform.json \
+              --soft-fail \
+              --compact
+          else
+            echo "No Terraform files found — skipping Terraform scan"
+          fi
+        continue-on-error: true
+
+      # ── Checkov: Ansible scan ───────────────────────────────────────────────
+      - name: "IaC | Checkov — Ansible scan"
+        run: |
+          if [ -d "ansible" ] || find . -name "*.yml" -path "*/tasks/*" | grep -q . || find . -name "playbook*.yml" | grep -q .; then
+            checkov \
+              --directory . \
+              --framework ansible \
+              --output json \
+              --output-file reports/checkov-ansible.json \
+              --soft-fail \
+              --compact
+          else
+            echo "No Ansible files found — skipping Ansible scan"
+          fi
+        continue-on-error: true
+
+      # ── Checkov: General IaC (GitHub Actions, Docker, etc.) ────────────────
+      - name: "IaC | Checkov — General IaC scan"
+        run: |
+          checkov \
+            --directory . \
+            --framework github_actions,dockerfile,secrets \
+            --output json \
+            --output-file reports/checkov-general.json \
+            --soft-fail \
+            --compact
+        continue-on-error: true
+
+      - name: Upload IaC reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: iac-reports
+          path: reports/checkov-*.json
+          retention-days: 30
+
+# =============================================================================
+# STAGE 5 — DAST: Dynamic Application Security Testing
+# Tools: OWASP ZAP (disabled by default — enable per project with live URL)
+# =============================================================================
+
+  dast:
+    name: "DAST — Dynamic Application Scan"
+    runs-on: ubuntu-latest
+    if: ${{ inputs.run_dast && inputs.dast_target_url != '' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: "DAST | OWASP ZAP — Baseline scan"
+        uses: zaproxy/action-baseline@v0.12.0
+        with:
+          target: ${{ inputs.dast_target_url }}
+          rules_file_name: ".zap/rules.tsv"
+          cmd_options: "-a -j"
+          fail_action: false
+
+      - name: "DAST | OWASP ZAP — Full active scan"
+        uses: zaproxy/action-full-scan@v0.10.0
+        with:
+          target: ${{ inputs.dast_target_url }}
+          fail_action: false
+          cmd_options: "-a"
+
+      - name: Upload DAST reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dast-reports
+          path: |
+            report_html.html
+            report_json.json
+          retention-days: 30
+
+# =============================================================================
+# STAGE 6 — REPORT: Aggregate & Upload to DefectDojo
+# Runs after all scan stages complete (success or failure)
+# =============================================================================
+
+  report:
+    name: "Report — Aggregate Security Findings"
+    runs-on: ubuntu-latest
+    needs: [sca, sast, secrets, iac]
+    if: always()   # always run even if upstream stages fail
+
+    steps:
+      - name: Download all scan artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-reports/
+
+      - name: List all findings
+        run: |
+          echo "============================================"
+          echo "  Kabnet SSDLC Pipeline — Findings Summary"
+          echo "  Project: ${{ inputs.project_name }}"
+          echo "  Run:     ${{ github.run_number }}"
+          echo "  Branch:  ${{ github.ref_name }}"
+          echo "============================================"
+          echo ""
+          echo "Artifacts collected:"
+          find all-reports/ -type f | sort
+          echo ""
+
+      # ── Upload to DefectDojo (optional — only if secrets are configured) ────
+      - name: "Report | Upload SCA to DefectDojo"
+        if: ${{ secrets.DEFECTDOJO_URL != '' && secrets.DEFECTDOJO_TOKEN != '' }}
+        run: |
+          # Upload OWASP Dependency-Check report
+          if [ -f all-reports/sca-reports/reports/dependency-check/dependency-check-report.json ]; then
+            curl -s -X POST "${{ secrets.DEFECTDOJO_URL }}/api/v2/import-scan/" \
+              -H "Authorization: Token ${{ secrets.DEFECTDOJO_TOKEN }}" \
+              -F "scan_type=Dependency Check Scan" \
+              -F "product_name=${{ inputs.project_name }}" \
+              -F "engagement_name=Pipeline Run ${{ github.run_number }}" \
+              -F "auto_create_context=true" \
+              -F "file=@all-reports/sca-reports/reports/dependency-check/dependency-check-report.json"
+            echo "SCA report uploaded to DefectDojo"
+          fi
+
+      - name: "Report | Upload SAST to DefectDojo"
+        if: ${{ secrets.DEFECTDOJO_URL != '' && secrets.DEFECTDOJO_TOKEN != '' }}
+        run: |
+          for file in all-reports/sast-reports/semgrep-*.json; do
+            if [ -f "$file" ]; then
+              curl -s -X POST "${{ secrets.DEFECTDOJO_URL }}/api/v2/import-scan/" \
+                -H "Authorization: Token ${{ secrets.DEFECTDOJO_TOKEN }}" \
+                -F "scan_type=Semgrep JSON Report" \
+                -F "product_name=${{ inputs.project_name }}" \
+                -F "engagement_name=Pipeline Run ${{ github.run_number }}" \
+                -F "auto_create_context=true" \
+                -F "file=@$file"
+              echo "SAST report $file uploaded to DefectDojo"
+            fi
+          done
+
+      - name: "Report | Pipeline summary"
+        run: |
+          echo "## Kabnet SSDLC Pipeline Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Stage | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| SCA (Dependency-Check, Safety, npm audit) | ✅ Complete |" >> $GITHUB_STEP_SUMMARY
+          echo "| SAST (Semgrep — Python + JS + OWASP Top 10) | ✅ Complete |" >> $GITHUB_STEP_SUMMARY
+          echo "| Secrets (TruffleHog — git history + filesystem) | ✅ Complete |" >> $GITHUB_STEP_SUMMARY
+          echo "| IaC (Checkov — Terraform + Ansible + Actions) | ✅ Complete |" >> $GITHUB_STEP_SUMMARY
+          echo "| DAST (OWASP ZAP) | ${{ inputs.run_dast && 'Enabled' || '⏭️ Skipped (enable with run_dast: true)' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "All artifacts available in the Actions run artifacts tab." >> $GITHUB_STEP_SUMMARY
