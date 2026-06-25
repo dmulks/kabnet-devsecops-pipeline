@@ -257,10 +257,12 @@ jobs:
         uses: trufflesecurity/trufflehog@main
         with:
           path: ./
-          base: ${{ github.event.repository.default_branch }}
-          head: HEAD
+          # Deliberately omit base/head: on push, schedule, and
+          # workflow_dispatch the action would otherwise set base == head
+          # (default branch == HEAD) and abort with "BASE == HEAD, exit with
+          # error". With neither set it scans the full checked-out history
+          # (fetch-depth: 0 above). PR runs still get an automatic diff scan.
           extra_args: >
-            --debug
             --only-verified
             --json
 
