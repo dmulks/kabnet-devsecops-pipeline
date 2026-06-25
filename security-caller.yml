@@ -1,0 +1,67 @@
+# =============================================================================
+# Kabnet ModelOps — SSDLC Security Pipeline Caller
+# Repository: kabnet-modelops (PRIVATE)
+# File: .github/workflows/security.yml
+#
+# Architecture (Option 2 — public pipeline, private project repos):
+#
+#   kabnet-devsecops-pipeline (PUBLIC)  ← pipeline logic only, no source code
+#   kabnet-modelops           (PRIVATE) ← source code, never public
+#
+# The pipeline repo contains ONLY workflow YAML — no proprietary code,
+# no secrets, no business logic. All sensitive material stays in this
+# private repo. GitHub Secrets are always encrypted regardless of
+# repo visibility.
+#
+# To call the reusable workflow from a private repo, GitHub requires
+# the caller repo to explicitly allow access. Set this once:
+#   kabnet-devsecops-pipeline → Settings → Actions → Access
+#   → "Accessible from repositories in the dmulks account"
+# =============================================================================
+
+name: ModelOps Security Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - "release/**"
+  pull_request:
+    branches:
+      - main
+      - develop
+  schedule:
+    # Full scan every Sunday at 02:00 UTC (catches new CVEs on unchanged code)
+    - cron: "0 2 * * 0"
+  workflow_dispatch:
+    # Allow manual trigger from GitHub Actions UI
+
+jobs:
+  security:
+    name: "Kabnet ModelOps — SSDLC Scan"
+    # ── Calls the PUBLIC central pipeline repo ──────────────────────────────
+    # Pipeline logic is public (no sensitive content).
+    # Your source code in THIS repo stays private.
+    uses: dmulks/kabnet-devsecops-pipeline/.github/workflows/ssdlc-pipeline.yml@main
+    with:
+      # ── Project identity ──────────────────────────────────────────────────
+      project_name: "Kabnet ModelOps"
+      project_language: "both"        # JS + Python
+
+      # ── Stage toggles ─────────────────────────────────────────────────────
+      run_sca: true                   # Dependency-Check + Safety + npm audit
+      run_sast: true                  # Semgrep (Python + JS + OWASP Top 10)
+      run_secrets: true               # TruffleHog (git history + filesystem)
+      run_iac: true                   # Checkov (Terraform + Ansible)
+      run_dast: false                 # Enable when staging URL is available
+      dast_target_url: ""             # e.g. "https://staging.kabnetsolutions.com"
+
+      # ── Failure policy ────────────────────────────────────────────────────
+      fail_on_cvss: "7"               # Fail on High+ CVEs (CVSS >= 7)
+
+    # ── Secrets: always encrypted, never visible in logs ────────────────────
+    # These are set in: kabnet-modelops → Settings → Secrets → Actions
+    secrets:
+      DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL }}
+      DEFECTDOJO_TOKEN: ${{ secrets.DEFECTDOJO_TOKEN }}

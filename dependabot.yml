@@ -1,0 +1,75 @@
+# =============================================================================
+# Kabnet ModelOps — Dependabot Configuration
+# File: .github/dependabot.yml
+#
+# Automatically opens PRs when dependencies have security updates or
+# new versions available. Works alongside the SCA pipeline stage.
+# =============================================================================
+
+version: 2
+
+updates:
+
+  # ── JavaScript / npm dependencies ──────────────────────────────────────────
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "America/Los_Angeles"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "javascript"
+      - "security"
+    commit-message:
+      prefix: "deps(npm)"
+    reviewers:
+      - "darius-kabnet"              # update to your GitHub username
+    groups:
+      # Group minor + patch updates into a single PR to reduce noise
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # ── Python / pip dependencies ───────────────────────────────────────────────
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "America/Los_Angeles"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "python"
+      - "security"
+    commit-message:
+      prefix: "deps(pip)"
+    reviewers:
+      - "darius-kabnet"              # update to your GitHub username
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # ── GitHub Actions workflow dependencies ────────────────────────────────────
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "America/Los_Angeles"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "deps(actions)"
+    reviewers:
+      - "darius-kabnet"              # update to your GitHub username

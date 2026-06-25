@@ -1,0 +1,221 @@
+# =============================================================================
+# Kabnet ModelOps — .gitignore
+# Covers: JavaScript/Node.js, Python, Terraform, Ansible, security scan
+#         outputs, IDE files, OS artifacts, and secrets
+# =============================================================================
+
+# ── SECRETS & CREDENTIALS (NEVER commit these) ─────────────────────────────
+.env
+.env.*
+.env.local
+.env.development
+.env.staging
+.env.production
+*.pem
+*.key
+*.p12
+*.pfx
+*.cert
+*.crt
+id_rsa
+id_rsa.pub
+id_ed25519
+id_ed25519.pub
+secrets.yml
+secrets.yaml
+credentials.json
+service-account.json
+*_credentials.json
+*_secrets.json
+vault-password
+.vault_pass
+.vault_pass.txt
+
+# ── JAVASCRIPT / NODE.JS ────────────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+.pnp.*
+dist/
+build/
+.next/
+.nuxt/
+.vite/
+coverage/
+*.lcov
+.nyc_output/
+jspm_packages/
+web_modules/
+*.tsbuildinfo
+
+# ── PYTHON ──────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+env.bak/
+venv.bak/
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+parts/
+var/
+sdist/
+develop-eggs/
+.installed.cfg
+lib/
+lib64/
+*.manifest
+*.spec
+
+# ── TERRAFORM ───────────────────────────────────────────────────────────────
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+tfplan
+*.tfplan
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+terraform.tfvars          # May contain sensitive variable values
+terraform.tfvars.json
+
+# ── ANSIBLE ─────────────────────────────────────────────────────────────────
+*.retry
+.ansible/
+ansible.log
+inventory/production       # Environment-specific inventories with IPs
+inventory/staging
+group_vars/all/vault.yml   # Ansible Vault files (encrypted but still exclude)
+host_vars/*/vault.yml
+
+# ── SECURITY SCAN OUTPUTS (generated artifacts — not source) ────────────────
+reports/
+dependency-check-report.*
+safety-report.json
+npm-audit-report.json
+semgrep-*.json
+trufflehog-*.json
+checkov-*.json
+checkov-*.xml
+zap-report.*
+report_html.html
+report_json.json
+gl-sast-report.json
+gl-dependency-scanning-report.json
+gl-secret-detection-report.json
+
+# ── DEFECTDOJO ───────────────────────────────────────────────────────────────
+defectdojo-findings/
+
+# ── IDE & EDITOR FILES ──────────────────────────────────────────────────────
+# VS Code
+.vscode/
+!.vscode/extensions.json   # Allow sharing recommended extensions
+!.vscode/settings.json     # Allow sharing project settings (no secrets)
+
+# JetBrains (WebStorm, PyCharm, IntelliJ)
+.idea/
+*.iws
+*.iml
+*.ipr
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+Session.vim
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+
+# ── OS FILES ────────────────────────────────────────────────────────────────
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# Linux
+*~
+
+# ── LOGS ────────────────────────────────────────────────────────────────────
+logs/
+*.log
+*.log.*
+npm-debug.log*
+lerna-debug.log*
+pnpm-debug.log*
+
+# ── DOCKER ──────────────────────────────────────────────────────────────────
+.docker/
+docker-compose.override.yml   # Local overrides with host-specific config
+
+# ── SERVICENOW SPECIFIC ──────────────────────────────────────────────────────
+# Update Set exports (large XML files — version in ServiceNow itself)
+*.xml.bak
+update_set_*.xml
+sys_update_xml_*.xml
+
+# ServiceNow SDK local config (may contain instance credentials)
+.snc/
+now.config.json            # May contain instance URL and auth tokens
+
+# ── MISC ────────────────────────────────────────────────────────────────────
+*.bak
+*.tmp
+*.temp
+*.orig
+*.rej
+.cache/
+.parcel-cache/
+tmp/
+temp/
