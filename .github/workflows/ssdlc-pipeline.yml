@@ -157,6 +157,12 @@ jobs:
           if [ -f package.json ]; then npm prune --omit=dev; fi
 
       # ── OWASP Dependency-Check (covers both JS + Python) ───────────────────
+      # --disableNodeJS turns off DC's Node Package Analyzer, which reads
+      # package.json dependency *ranges* (e.g. minimatch "^3.1.1") and reports
+      # them as installed versions — a false positive not present in the
+      # resolved/production tree. Authoritative npm SCA is the
+      # `npm audit --omit=dev` gate above; RetireJS still scans the real
+      # production .js files (dev deps are pruned beforehand).
       - name: "SCA | OWASP Dependency-Check"
         uses: dependency-check/Dependency-Check_Action@main
         with:
@@ -167,6 +173,7 @@ jobs:
             --failOnCVSS ${{ inputs.fail_on_cvss }}
             --enableRetired
             --nodeAuditSkipDevDependencies
+            --disableNodeJS
             --out reports/dependency-check
 
       # ── Upload SCA artifacts ────────────────────────────────────────────────
