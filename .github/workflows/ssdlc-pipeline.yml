@@ -143,7 +143,9 @@ jobs:
             # above but must not fail the pipeline (--omit=dev)
             npm audit --omit=dev --audit-level=high
           fi
-        continue-on-error: true
+        # No continue-on-error: a production-dependency high+ CVE must fail the
+        # pipeline. Dev-only findings are excluded above (--omit=dev), so this
+        # gate only trips on vulnerabilities that actually ship.
 
       # ── OWASP Dependency-Check (covers both JS + Python) ───────────────────
       - name: "SCA | OWASP Dependency-Check"
@@ -155,6 +157,7 @@ jobs:
           args: >
             --failOnCVSS ${{ inputs.fail_on_cvss }}
             --enableRetired
+            --nodeAuditSkipDevDependencies
             --out reports/dependency-check
 
       # ── Upload SCA artifacts ────────────────────────────────────────────────
