@@ -137,8 +137,11 @@ jobs:
         if: ${{ inputs.project_language == 'javascript' || inputs.project_language == 'both' }}
         run: |
           if [ -f package.json ]; then
+            # Full-scope report (incl. dev deps) for visibility — never fails (|| true)
             npm audit --json > npm-audit-report.json || true
-            npm audit --audit-level=high
+            # Gate on PRODUCTION deps only: dev/build-tooling CVEs are reported
+            # above but must not fail the pipeline (--omit=dev)
+            npm audit --omit=dev --audit-level=high
           fi
         continue-on-error: true
 
