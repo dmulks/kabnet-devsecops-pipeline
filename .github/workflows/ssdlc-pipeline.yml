@@ -147,6 +147,15 @@ jobs:
         # pipeline. Dev-only findings are excluded above (--omit=dev), so this
         # gate only trips on vulnerabilities that actually ship.
 
+      # Strip dev dependencies from node_modules so Dependency-Check's RetireJS
+      # and Node Package analyzers (which scan files on disk, and are NOT
+      # governed by --nodeAuditSkipDevDependencies) only see production code.
+      # The full npm-audit report above already captured the dev-dep findings.
+      - name: "SCA | Prune dev dependencies before Dependency-Check"
+        if: ${{ inputs.project_language == 'javascript' || inputs.project_language == 'both' }}
+        run: |
+          if [ -f package.json ]; then npm prune --omit=dev; fi
+
       # ── OWASP Dependency-Check (covers both JS + Python) ───────────────────
       - name: "SCA | OWASP Dependency-Check"
         uses: dependency-check/Dependency-Check_Action@main
